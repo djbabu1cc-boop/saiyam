@@ -1,0 +1,7 @@
+Asset Name,Gross Amount,PTU Date,Date of Disposal,Useful Life,Dep Rate %,Scrap Value %,Sale Proceeds
+Office Building,5000000,01-04-2020,,60,10,5,
+Delivery Van A,1200000,15-06-2023,31-07-2025,8,15,5,450000
+Old Server (Sold Before FY),800000,10-05-2021,15-12-2024,5,40%,0%,150000
+New Machinery (Future PTU),2500000,15-04-2026,,15,15,5,
+Laptops Batch 1 (Test Scrap Value),1000000,01-04-2022,,3,60%,10,
+Office Furniture,450000,10-10-2024,,10,18.10%,5%,

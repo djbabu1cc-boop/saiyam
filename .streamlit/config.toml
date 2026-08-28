@@ -1,0 +1,18 @@
+# Deprecito — strict offline / localhost configuration
+# Guarantees the app never phones home and never exposes itself to the network.
+
+[browser]
+# Disable Streamlit's anonymous usage-statistics collection (fully offline).
+gatherUsageStats = false
+
+[server]
+# Bind ONLY to loopback — the app is reachable on this machine only,
+# never exposed to the LAN or internet.
+address = "localhost"
+# Do not auto-open a browser tab; the owner opens the URL themselves.
+headless = true
+
+[client]
+# Disable the "Update available" / other network checks.
+toolbarMode = "minimal"
+showErrorDetails = true
