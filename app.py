@@ -1,13 +1,4 @@
-   """
-Deprecito — Streamlit UI (localhost)
 
-Upload a raw fixed-asset Excel/CSV file, optionally map columns manually, pick
-reporting parameters, and download a processed Excel working with exact-day WDV
-depreciation.
-
-The UI only renders and orchestrates; ALL financial logic lives in
-`depreciation_engine.py` (the `Calculate` core).
-"""
 
 from __future__ import annotations
 
@@ -424,4 +415,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-             
