@@ -1,27 +1,4 @@
-"""
-Deprecito — Core Financial Engine (WDV depreciation)
 
-This module contains ALL the financial logic. It is deliberately free of any
-UI dependency so it can be unit-tested in isolation and reused by any front end
-(Streamlit, CLI, tests, etc.).
-
-Calculation model  (standard WDV, exact-day pro-rata)
-------------------------------------------------------
-* Depreciation follows the classic Written-Down-Value method:
-  dep = Opening WDV of the year  x  Depreciation rate  x  (days used / days_in_year)
-* The WDV is recalculated once a *financial year* (1 Apr - 31 Mar, the Indian
-  convention) — the block's opening WDV carries the prior years' written-down
-  value, and the year's depreciation is applied to that opening WDV prorated by
-  the exact number of days the asset was in use that year.
-* Both start (PTU) and end (cut-off / disposal) dates are INCLUSIVE.
-* A fixed leap basis (365 or 366) is used as the year denominator.
-* Scrap Value Floor: WDV can never fall below Gross x (Scrap Value %).  When
-  reached, depreciation stops.
-* Useful Life is deliberately IGNORED — the engine relies entirely on Dep Rate %.
-* Cumulative depreciation to any date D is computed by walking the financial
-  years; "Period Depreciation" is the difference of cumulative depreciation at
-  two dates, which is exact on the running-WDV basis (even across the floor).
-"""
 
 from __future__ import annotations
 
@@ -68,7 +45,9 @@ EXCEL_EPOCH = date(1899, 12, 30)  # Excel serial date epoch
 # ---------------------------------------------------------------------------
 
 def parse_percentage(value) -> float:
-    """Parse a percentage that may be '18.10', '18.10%', ' 18.10 % ' etc."""
+    """Parse a percentage that may be '18.10', '18.10%', ' 18.10 % ' etc.
+    If the value contains a '%' sign, it is treated as a percentage.
+    If no '%' sign, the raw number is returned (assumed to already be a %)."""
     if value is None:
         return 0.0
     if isinstance(value, (int, float)):
@@ -76,11 +55,71 @@ def parse_percentage(value) -> float:
     text = str(value).strip()
     if not text:
         return 0.0
+    # Check if explicit % sign is present
+    has_percent = "%" in text
     text = text.replace("%", "").replace(",", "").strip()
     try:
-        return float(text)
+        num = float(text)
+        return num
     except ValueError:
         raise ValueError(f"Cannot parse percentage from value: {value!r}")
+
+
+def parse_scrap_value(value, gross: float = 0.0) -> float:
+    """Parse scrap value. Supports both percentage and absolute value:
+    - '5' or '5%'  -> 5% of gross (percentage mode)
+    - '50000'      -> ₹50,000 absolute (absolute mode)
+    - '50,000'     -> ₹50,000 absolute (absolute mode)
+
+    Detection rule:
+    - If value contains '%' sign -> always treat as percentage
+    - If value < 100 (and no % sign) -> treat as percentage
+    - If value >= 100 (and no % sign) -> treat as absolute value
+
+    Returns the percentage value (e.g., 5 for 5%) so the rest of the engine
+    works unchanged. If absolute value is given, it is converted to a
+    percentage of gross: (absolute / gross) * 100.
+    """
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        val = float(value)
+        # Detection: if value >= 100, treat as absolute
+        if val >= 100:
+            if gross > 0:
+                return (val / gross) * 100
+            return 0.0
+        return val  # Treat as percentage
+
+    text = str(value).strip()
+    if not text:
+        return 0.0
+
+    # Check for explicit % sign
+    has_percent = "%" in text
+    text_clean = text.replace("%", "").replace(",", "").replace("₹", "").replace("$", "").strip()
+
+    if not text_clean:
+        return 0.0
+
+    try:
+        num = float(text_clean)
+    except ValueError:
+        raise ValueError(f"Cannot parse scrap value from: {value!r}")
+
+    if has_percent:
+        # Explicit percentage: 5% -> 5
+        return num
+
+    # No % sign — detect by magnitude
+    if num >= 100:
+        # Absolute value: convert to percentage of gross
+        if gross > 0:
+            return (num / gross) * 100
+        return 0.0
+    else:
+        # Small number without % — treat as percentage
+        return num
 
 
 def parse_date(value) -> date:
@@ -114,12 +153,13 @@ def parse_date(value) -> date:
 
 
 def parse_number(value) -> float:
-    """Parse a plain number, stripping thousand separators and currency marks."""
+    """Parse a plain number, stripping thousand separators and currency marks.
+    Handles: 50000, 50,000, ₹50,000, $50,000, 50000.50, etc."""
     if value is None:
         return 0.0
     if isinstance(value, (int, float)):
         return float(value)
-    text = str(value).strip().replace(",", "").replace("₹", "").replace("$", "")
+    text = str(value).strip().replace(",", "").replace("₹", "").replace("$", "").replace("%", "").strip()
     if not text:
         return 0.0
     try:
@@ -302,7 +342,10 @@ def process_asset(
     gross = parse_number(row.get("Gross Amount"))
     ptu = parse_date(row.get("PTU Date"))
     dep_rate = parse_percentage(row.get("Dep Rate %"))
-    scrap_pct = parse_percentage(row.get("Scrap Value %"))
+
+    # Parse scrap value with gross context for absolute value detection
+    scrap_raw = row.get("Scrap Value %")
+    scrap_pct = parse_scrap_value(scrap_raw, gross)
 
     # Disposal info (may be blank)
     disposal_raw = row.get("Date of Disposal")
