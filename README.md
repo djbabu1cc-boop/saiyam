@@ -277,8 +277,10 @@ runs whenever `android/`, the parser, or the samples change. It runs:
    pipeline on the four `samples/` invoices, with the same expected values as
    `tests/test_extractor.py`, plus the Excel writer and an app-launch check.
 
-To **publish** an APK to a release: *Actions → Build Invoice Extractor APK → Run
-workflow*. Set `publish_to_release` = true and `release_tag` = e.g. `v1.0.0-android`.
+To **publish** an APK to a release, either push a tag ending in `-android`
+(`git tag v1.0.0-android && git push origin v1.0.0-android`) or use *Actions → Build
+Invoice Extractor APK → Run workflow* with `publish_to_release` = true and
+`release_tag` = e.g. `v1.0.0-android`. `-android` tags don't trigger the Windows build.
 A missing release is created at that commit. An existing release just gets the APK
 added; its title and notes stay as they are.
 
