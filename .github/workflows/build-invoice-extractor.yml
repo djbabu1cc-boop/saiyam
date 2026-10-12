@@ -11,7 +11,8 @@ on:
   # whole workflow file with "Unexpected value 'tags'".
   push:
     branches: ["**"]
-    tags: ["v*"]
+    # "-android" tags publish the Android APK (build-invoice-extractor-apk.yml)
+    tags: ["v*", "!v*-android"]
   pull_request:
   workflow_dispatch:
 

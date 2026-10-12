@@ -1,0 +1,290 @@
+name: Build Invoice Extractor APK
+
+# Builds the Invoice Extractor Android app (android/).
+#  * Every build runs the JVM unit tests (parser parity with the desktop app,
+#    Excel writer) and the on-device tests on an Android emulator (PDFBox,
+#    PdfRenderer, ML Kit OCR on the samples/ invoices), then uploads the APK
+#    as a workflow artifact.
+#  * Publishing the APK to a GitHub Release (created if missing):
+#      - run it manually ("Run workflow") with publish_to_release=true and a
+#        release_tag, or
+#      - push a tag ending in "-android", e.g. `git push origin v1.0.0-android`
+#        (path filters don't apply to tag pushes, so this always builds).
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*-android"]
+    paths:
+      - "android/**"
+      - "invoice_extractor/parser.py"
+      - "invoice_extractor/ocr.py"
+      - "samples/**"
+      - "scripts/export_parser_fixtures.py"
+      - ".github/workflows/build-invoice-extractor-apk.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - "invoice_extractor/parser.py"
+      - "invoice_extractor/ocr.py"
+      - "samples/**"
+      - "scripts/export_parser_fixtures.py"
+      - ".github/workflows/build-invoice-extractor-apk.yml"
+  workflow_dispatch:
+    inputs:
+      publish_to_release:
+        description: "Attach the APK to a GitHub Release"
+        type: boolean
+        default: false
+      release_tag:
+        description: "Release tag to publish to, e.g. v1.0.0-android (created if it doesn't exist)"
+        type: string
+        default: ""
+
+concurrency:
+  group: invoice-extractor-apk-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "17"
+  PUBLISH: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_to_release) || startsWith(github.ref, 'refs/tags/') }}
+  RELEASE_TAG: ${{ inputs.release_tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
+
+jobs:
+  parser-parity:
+    name: Parser fixtures match the desktop parser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install parser dependencies
+        run: pip install "pypdf>=4.2.0" "Pillow>=10.0.0"
+
+      - name: Check android/app/src/test/resources/parser_fixtures.json is current
+        run: python scripts/export_parser_fixtures.py --check
+
+  build:
+    name: Build APK + unit tests
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      apk: ${{ steps.package.outputs.APK }}
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate inputs
+        if: env.PUBLISH == 'true'
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::publish_to_release=true needs a release_tag like v1.0.0 or v1.0.0-android (got '$RELEASE_TAG')"
+            exit 1
+          fi
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Determine build version
+        id: version
+        run: |
+          if [ "$PUBLISH" = "true" ]; then
+            v="${RELEASE_TAG#v}"
+          else
+            base=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' ../invoice_extractor/__init__.py)
+            v="${base}-dev.${GITHUB_SHA::7}"
+          fi
+          # Drop a "-android" tag suffix: the APK name already says "android".
+          v="${v%-android}"
+          echo "VERSION=$v" >> "$GITHUB_OUTPUT"
+          echo "VERSION_NAME=$v" >> "$GITHUB_OUTPUT"
+          echo "Build version: $v (versionCode ${GITHUB_RUN_NUMBER})"
+
+      - name: Set up release signing key (if configured)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "Signing with the release key from repository secrets."
+          else
+            echo "::notice::No ANDROID_KEYSTORE_BASE64 secret - the APK is signed with a throwaway debug key. See README (Android) to set up a permanent key."
+          fi
+
+      - name: Unit tests (parser parity, OCR line grouping, Excel writer)
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Build release APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleRelease \
+            -PappVersionName="${{ steps.version.outputs.VERSION_NAME }}" \
+            -PappVersionCode="${GITHUB_RUN_NUMBER}"
+
+      - name: Package APK
+        id: package
+        run: |
+          apk="InvoiceExtractor-v${{ steps.version.outputs.VERSION }}-android.apk"
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/$apk"
+          echo "APK=$apk" >> "$GITHUB_OUTPUT"
+          sdk="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          "$sdk/apksigner" verify --print-certs "dist/$apk" > "$RUNNER_TEMP/certs.txt"
+          head -n 3 "$RUNNER_TEMP/certs.txt"
+          "$sdk/aapt2" dump badging "dist/$apk" > "$RUNNER_TEMP/badging.txt"
+          head -n 2 "$RUNNER_TEMP/badging.txt"
+          ls -l dist
+          {
+            echo "### APK"
+            echo "\`$apk\` - $(du -h "dist/$apk" | cut -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: InvoiceExtractor-android
+          path: android/dist/*.apk
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Annotate failed unit tests
+        if: failure()
+        run: python3 ../.github/scripts/annotate_test_failures.py app/build/test-results "$RUNNER_TEMP/none"
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: android/app/build/reports/
+          retention-days: 14
+
+  device-tests:
+    name: On-device tests (Android emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Pre-build test APKs
+        run: ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
+
+      - name: Run instrumented tests (PDF text, scanned PDF + image OCR, Excel, UI launch)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          working-directory: android
+          script: ./gradlew --no-daemon connectedDebugAndroidTest > "$RUNNER_TEMP/connected.log" 2>&1 || (tail -n 80 "$RUNNER_TEMP/connected.log"; exit 1)
+
+      - name: Annotate failed device tests
+        if: failure()
+        run: python3 ../.github/scripts/annotate_test_failures.py app/build/outputs/androidTest-results "$RUNNER_TEMP/connected.log"
+
+      - name: Upload instrumented test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-test-reports
+          path: |
+            android/app/build/reports/androidTests/
+            android/app/build/outputs/androidTest-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  release:
+    name: Publish APK to GitHub Release
+    needs: [parser-parity, build, device-tests]
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish_to_release) || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: InvoiceExtractor-android
+          path: release-files
+
+      - name: Does the release already exist?
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $RELEASE_TAG exists - the APK will be added to it (name and notes unchanged)."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Release $RELEASE_TAG will be created at ${GITHUB_SHA::7}."
+          fi
+
+      - name: Write release notes (new releases only)
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          APK: ${{ needs.build.outputs.apk }}
+        run: |
+          cat > notes.md <<EOF
+          Android app for **Invoice Extractor**: extracts Invoice No, Date, Vendor/Supplier, GSTIN,
+          Taxable Amount, CGST, SGST, IGST and Total from PDF and image invoices right on your phone
+          (on-device OCR, nothing is uploaded) and exports them to a formatted Excel workbook.
+
+          **Install:** download **$APK** on your Android phone (8.0 or newer), open it and allow
+          installing apps from your browser/file manager when asked.
+
+          Built from ${GITHUB_SHA::7}. The Windows app is available on the
+          [Releases page]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases).
+          EOF
+          cat notes.md
+
+      - name: Attach APK to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          files: release-files/*.apk
+          # Only name/describe the release when we create it, so publishing
+          # into an existing release never rewrites its title or notes.
+          name: ${{ steps.existing.outputs.exists != 'true' && format('Invoice Extractor v{0} (Android)', needs.build.outputs.version) || '' }}
+          body_path: ${{ steps.existing.outputs.exists != 'true' && 'notes.md' || '' }}
+          make_latest: false
+          draft: false
+          prerelease: false

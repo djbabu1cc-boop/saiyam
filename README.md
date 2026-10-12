@@ -5,6 +5,7 @@ invoices** (PDFs and images) and exports it to a **formatted Excel `.xlsx`
 workbook**.
 
 ![Build Windows EXE](https://github.com/djbabu1cc-boop/saiyam/actions/workflows/build-invoice-extractor.yml/badge.svg)
+![Build Android APK](https://github.com/djbabu1cc-boop/saiyam/actions/workflows/build-invoice-extractor-apk.yml/badge.svg)
 
 | | |
 |---|---|
@@ -13,7 +14,7 @@ workbook**.
 | **Batch** | Yes — add files or a whole folder, one click |
 | **OCR** | Built-in RapidOCR (ONNX, works out of the box) + optional Tesseract |
 | **Output** | Formatted `.xlsx` (data sheet + summary sheet, filters, frozen header, number formats) |
-| **Platforms** | Windows (ready-to-run `.exe`), plus any OS via Python |
+| **Platforms** | Windows (ready-to-run `.exe`), **Android** (`.apk`), plus any OS via Python |
 
 ---
 
@@ -30,6 +31,7 @@ workbook**.
 9. [Releasing a new version](#9-releasing-a-new-version)
 10. [Troubleshooting](#10-troubleshooting)
 11. [License](#11-license)
+12. [Android app (.apk)](#12-android-app-apk)
 
 ---
 
@@ -170,7 +172,8 @@ winget install --id UB Mannheim.TesseractOCR.OCR
 
 ```
 ├── .github/workflows/
-│   └── build-invoice-extractor.yml # CI: build .exe, artifacts, releases
+│   ├── build-invoice-extractor.yml       # CI: build .exe, artifacts, releases
+│   └── build-invoice-extractor-apk.yml   # CI: build + test the Android .apk
 ├── InvoiceExtractor.spec                 # PyInstaller specification
 ├── main.py                               # launcher / PyInstaller entry point
 ├── requirements.txt                      # runtime dependencies
@@ -184,8 +187,10 @@ winget install --id UB Mannheim.TesseractOCR.OCR
 │   ├── ocr.py                            # OCR engines (RapidOCR, Tesseract)
 │   ├── parser.py                         # text → invoice fields (regex)
 │   └── exporter.py                       # results → formatted .xlsx
+├── android/                              # Android app (Kotlin) - see section 12
 ├── samples/                              # 4 sample invoices (all paths)
 ├── scripts/generate_samples.py           # regenerates the samples
+├── scripts/export_parser_fixtures.py     # parser fixtures for the Android tests
 ├── assets/icon.ico                       # app icon
 └── tests/                                # unit + end-to-end tests
 ```
@@ -233,3 +238,65 @@ Build steps: `checkout → Python 3.11 → pip install → unittest → PyInstal
 ## 11. License
 
 MIT — see [LICENSE](LICENSE).
+
+## 12. Android app (.apk)
+
+The same extractor is available as a native Android app in [`android/`](android/).
+It does everything on the phone, offline: invoices are never uploaded.
+
+**Get it:** download `InvoiceExtractor-vX.Y.Z-android.apk` from the
+[Releases page](../../releases) (or the `InvoiceExtractor-android` artifact of any
+[Build Invoice Extractor APK](../../actions/workflows/build-invoice-extractor-apk.yml)
+run). Open it on your phone and allow installing from that source. Needs Android 8.0+.
+
+**Use it:** *Add files* / *Add folder* (or share PDFs/photos to the app from
+WhatsApp, Gmail, Files…), tap **Extract all**, then **Save Excel** or **Share**.
+Tap an invoice to see all fields and the recognised text. The workbook has the
+same columns, formatting and summary sheet as the Windows app.
+
+| | Windows / Python | Android |
+|---|---|---|
+| PDF text layer | pypdf | PDFBox (pdfbox-android) |
+| Scanned PDFs | pypdfium2 → OCR | PdfRenderer → OCR |
+| OCR | RapidOCR / Tesseract | Google ML Kit (on-device, bundled model) |
+| Parsing | `parser.py` | Kotlin port, `core/InvoiceParser.kt` |
+| Excel | openpyxl | built-in `.xlsx` writer, `core/XlsxExporter.kt` |
+| Image types | PDF, PNG, JPG, TIFF, BMP, WEBP | PDF, PNG, JPG, WEBP, BMP, HEIC (no TIFF) |
+
+**Parser parity.** The Kotlin parser is a port of `parser.py`. If you change the Python
+parser, run `python scripts/export_parser_fixtures.py` and commit the updated
+`android/app/src/test/resources/parser_fixtures.json`. CI fails if that file is stale
+or if the Kotlin parser gives different results from Python for any fixture.
+
+**CI** ([`build-invoice-extractor-apk.yml`](.github/workflows/build-invoice-extractor-apk.yml))
+runs whenever `android/`, the parser, or the samples change. It runs:
+
+1. the parser-fixture freshness check (Python);
+2. the JVM unit tests and `assembleRelease`, then uploads the APK as an artifact;
+3. instrumented tests on an Android emulator: the real PDFBox, PdfRenderer and ML Kit
+   pipeline on the four `samples/` invoices, with the same expected values as
+   `tests/test_extractor.py`, plus the Excel writer and an app-launch check.
+
+To **publish** an APK to a release, either push a tag ending in `-android`
+(`git tag v1.0.0-android && git push origin v1.0.0-android`) or use *Actions → Build
+Invoice Extractor APK → Run workflow* with `publish_to_release` = true and
+`release_tag` = e.g. `v1.0.0-android`. `-android` tags don't trigger the Windows build.
+A missing release is created at that commit. An existing release just gets the APK
+added; its title and notes stay as they are.
+
+**Signing.** Without a key configured, CI signs the APK with a throwaway debug key.
+It installs fine, but each build has a different signature, so updating means
+uninstalling first. To get a stable key, create one and add four repository secrets:
+
+```bash
+keytool -genkeypair -v -keystore release.jks -alias invoice -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 release.jks   # -> secret ANDROID_KEYSTORE_BASE64
+```
+
+Also add `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`invoice`) and
+`ANDROID_KEY_PASSWORD`. Keep `release.jks` safe: you need the same key for every
+future update.
+
+**Build locally:** open `android/` in Android Studio, or run `cd android && ./gradlew assembleDebug`
+(JDK 17 + Android SDK 35). For tests: `./gradlew testDebugUnitTest`, and
+`./gradlew connectedDebugAndroidTest` with a device attached.
