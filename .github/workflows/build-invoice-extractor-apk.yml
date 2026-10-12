@@ -108,9 +108,10 @@ jobs:
             base=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' ../invoice_extractor/__init__.py)
             v="${base}-dev.${GITHUB_SHA::7}"
           fi
-          # versionName without any "-android" suffix; versionCode must grow
+          # Drop a "-android" tag suffix: the APK name already says "android".
+          v="${v%-android}"
           echo "VERSION=$v" >> "$GITHUB_OUTPUT"
-          echo "VERSION_NAME=${v%-android}" >> "$GITHUB_OUTPUT"
+          echo "VERSION_NAME=$v" >> "$GITHUB_OUTPUT"
           echo "Build version: $v (versionCode ${GITHUB_RUN_NUMBER})"
 
       - name: Set up release signing key (if configured)
@@ -282,7 +283,7 @@ jobs:
           files: release-files/*.apk
           # Only name/describe the release when we create it, so publishing
           # into an existing release never rewrites its title or notes.
-          name: ${{ steps.existing.outputs.exists != 'true' && format('Invoice Extractor {0} (Android)', env.RELEASE_TAG) || '' }}
+          name: ${{ steps.existing.outputs.exists != 'true' && format('Invoice Extractor v{0} (Android)', needs.build.outputs.version) || '' }}
           body_path: ${{ steps.existing.outputs.exists != 'true' && 'notes.md' || '' }}
           make_latest: false
           draft: false
