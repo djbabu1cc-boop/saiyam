@@ -1,0 +1,4 @@
+# Development / build dependencies
+-r requirements.txt
+pyinstaller>=6.3.0
+reportlab>=4.0.0

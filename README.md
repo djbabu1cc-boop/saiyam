@@ -117,3 +117,14 @@ deprecito/
 - The financial-year boundary (for WDV recomputation) is 1 April–31 March, the
   Indian convention, regardless of the chosen reporting basis.
 - Partial-year depreciation uses the prorated opening-WDV method above.
+
+---
+
+## Other projects in this repo
+
+* **`invoice-extractor/`** — Invoice Extractor v1.0.0: a desktop app (GUI + CLI)
+  that batch-extracts invoice number, date, vendor, GSTIN, taxable value,
+  CGST/SGST/IGST and total from PDF & image invoices and exports to Excel.
+  Its Windows `.exe` is built automatically by GitHub Actions
+  ([Build Invoice Extractor EXE](.github/workflows/build-invoice-extractor.yml));
+  see [invoice-extractor/README.md](invoice-extractor/README.md) for usage.
