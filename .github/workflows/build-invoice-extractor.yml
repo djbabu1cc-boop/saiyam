@@ -1,6 +1,6 @@
 name: Build Invoice Extractor EXE
 
-# Builds the Invoice Extractor Windows .exe (project lives in invoice-extractor/).
+# Builds the Invoice Extractor Windows .exe.
 #  * Every successful build publishes a downloadable artifact.
 #  * Pushing a version tag (v1.0.0, v1.1.0, ...) additionally creates a
 #    GitHub Release with the .exe attached.
@@ -25,9 +25,6 @@ jobs:
   build-windows:
     name: Build EXE (windows-latest)
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: invoice-extractor
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -37,7 +34,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: invoice-extractor/requirements*.txt
+          cache-dependency-path: requirements*.txt
 
       - name: Install dependencies
         shell: pwsh
@@ -80,12 +77,11 @@ jobs:
           Compress-Archive -Path "dist\InvoiceExtractor" -DestinationPath $zip
           Get-Item $zip | Select-Object Name, @{n='SizeMB';e={[math]::Round($_.Length/1MB,1)}}
 
-      # NOTE: upload-artifact paths are relative to the repo root.
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
           name: InvoiceExtractor-windows
-          path: invoice-extractor/dist/InvoiceExtractor-v${{ steps.version.outputs.VERSION }}-win64.zip
+          path: dist/InvoiceExtractor-v${{ steps.version.outputs.VERSION }}-win64.zip
           retention-days: 90
 
   release:
