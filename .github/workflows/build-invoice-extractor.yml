@@ -1,0 +1,107 @@
+name: Build Invoice Extractor EXE
+
+# Builds the Invoice Extractor Windows .exe.
+#  * Every successful build publishes a downloadable artifact.
+#  * Pushing a version tag (v1.0.0, v1.1.0, ...) additionally creates a
+#    GitHub Release with the .exe attached.
+on:
+  push:
+  pull_request:
+  tags:
+    - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: invoice-extractor-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  build-windows:
+    name: Build EXE (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run unit tests (parser, PDF text + OCR extraction, Excel export)
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+
+      - name: Smoke test CLI on a sample invoice
+        shell: pwsh
+        run: |
+          python main.py samples\invoice_1_gst.pdf --json --out smoke_test.xlsx
+
+      - name: Build with PyInstaller
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean InvoiceExtractor.spec
+
+      - name: Determine build version
+        id: version
+        shell: pwsh
+        run: |
+          if ("$env:GITHUB_REF" -like "refs/tags/v*") {
+            $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          } else {
+            $base = & python -c "from invoice_extractor import __version__; print(__version__)"
+            $v = "$base-dev" + $env:GITHUB_SHA.Substring(0, 7)
+          }
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Build version: $v"
+
+      - name: Package EXE as ZIP
+        shell: pwsh
+        run: |
+          $zip = "dist/InvoiceExtractor-v${{ steps.version.outputs.VERSION }}-win64.zip"
+          Compress-Archive -Path "dist\InvoiceExtractor" -DestinationPath $zip
+          Get-Item $zip | Select-Object Name, @{n='SizeMB';e={[math]::Round($_.Length/1MB,1)}}
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: InvoiceExtractor-windows
+          path: dist/InvoiceExtractor-v${{ steps.version.outputs.VERSION }}-win64.zip
+          retention-days: 90
+
+  release:
+    name: Publish GitHub Release (version tags only)
+    needs: build-windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download EXE artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: InvoiceExtractor-windows
+          path: release-files
+
+      - name: Attach EXE to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
