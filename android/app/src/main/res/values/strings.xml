@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Invoice Extractor</string>
+    <string name="app_subtitle">GST invoices → Excel · v%1$s</string>
+
+    <string name="action_add_files">Add files</string>
+    <string name="action_add_folder">Add folder</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_extract">Extract all</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save Excel</string>
+    <string name="action_share">Share</string>
+    <string name="action_remove">Remove</string>
+
+    <string name="empty_title">No invoices yet</string>
+    <string name="empty_body">Add PDF or image invoices (or share them to this app), then tap Extract all.\n\nEverything runs on your phone: invoices are never uploaded.</string>
+
+    <string name="status_ready">Ready. Add invoice files to begin.</string>
+    <string name="status_extracting">Extracting… %1$d of %2$d done</string>
+    <string name="status_results">%1$d of %2$d files with data. Save or share the Excel file.</string>
+    <plurals name="status_files">
+        <item quantity="one">%d file in the batch</item>
+        <item quantity="other">%d files in the batch</item>
+    </plurals>
+
+    <string name="state_pending">Pending</string>
+    <string name="state_running">Processing…</string>
+
+    <string name="field_invoice_no">Invoice No: %1$s   ·   Date: %2$s</string>
+    <string name="field_vendor">Vendor: %1$s</string>
+    <string name="field_gstin">GSTIN: %1$s</string>
+    <string name="field_taxes">Taxable %1$s · CGST %2$s · SGST %3$s · IGST %4$s</string>
+    <string name="field_total">Total: ₹ %1$s</string>
+    <string name="details_extracted_text">Extracted text:</string>
+
+    <string name="msg_extraction_done">Done: %1$d of %2$d files with data</string>
+    <string name="msg_saved">Excel file saved</string>
+    <string name="msg_save_failed">Could not write the Excel file</string>
+    <string name="msg_no_invoices_in_folder">No PDF or image invoices found in that folder</string>
+    <string name="msg_duplicates_skipped">%1$d file(s) were already in the batch</string>
+</resources>
