@@ -49,7 +49,11 @@ data class ExtractionOutcome(
  *
  * All methods block - call them from a background thread.
  */
-class InvoiceTextExtractor(context: Context) : Closeable {
+class InvoiceTextExtractor(
+    context: Context,
+    /** PDF render scale for OCR: 72 dpi * 3 ~= 216 dpi, same as the desktop app. */
+    private val renderScale: Float = 3f,
+) : Closeable {
 
     private val appContext = context.applicationContext
     private var recognizer: TextRecognizer? = null
@@ -61,7 +65,6 @@ class InvoiceTextExtractor(context: Context) : Closeable {
     companion object {
         const val ENGINE = "mlkit"
         const val MIN_TEXT_CHARS = 40 // shorter than this, a PDF is treated as scanned
-        private const val RENDER_SCALE = 3f // 72 dpi * 3 ~= 216 dpi, same as the desktop app
         private const val MAX_RENDER_SIDE = 3000
         private const val MAX_IMAGE_SIDE = 4096
         private const val MIN_OCR_WIDTH = 1600
@@ -168,7 +171,7 @@ class InvoiceTextExtractor(context: Context) : Closeable {
                         val page = renderer.openPage(i)
                         val bitmap = try {
                             val scale = min(
-                                RENDER_SCALE,
+                                renderScale,
                                 MAX_RENDER_SIDE.toFloat() / max(page.width, page.height).coerceAtLeast(1),
                             )
                             val w = (page.width * scale).roundToInt().coerceAtLeast(1)
@@ -228,7 +231,10 @@ class InvoiceTextExtractor(context: Context) : Closeable {
     private fun decodeForOcr(uri: Uri): Bitmap? {
         val resolver = appContext.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+        // With inJustDecodeBounds decodeStream() always returns null - only the
+        // out* fields matter here.
+        val stream = resolver.openInputStream(uri) ?: return null
+        stream.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
         var sample = 1
