@@ -51,8 +51,14 @@ data class ExtractionOutcome(
  */
 class InvoiceTextExtractor(
     context: Context,
-    /** PDF render scale for OCR: 72 dpi * 3 ~= 216 dpi, same as the desktop app. */
-    private val renderScale: Float = 3f,
+    /**
+     * PDF render scale for OCR. 72 dpi * 4 = 288 dpi, capped at
+     * [MAX_RENDER_SIDE] px (~300 dpi for A4), the usual OCR sweet spot. The
+     * desktop app's 216 dpi made ML Kit misread the scanned sample
+     * ("CHENNAL" for "CHENNAI"); 1x-2.5x and the capped 4x/5x all read it
+     * correctly in the emulator tests.
+     */
+    private val renderScale: Float = 4f,
 ) : Closeable {
 
     private val appContext = context.applicationContext
