@@ -5,10 +5,14 @@ name: Build Invoice Extractor EXE
 #  * Pushing a version tag (v1.0.0, v1.1.0, ...) additionally creates a
 #    GitHub Release with the .exe attached.
 on:
+  # Build on every branch push so each commit gets a downloadable artifact.
+  # `tags` is NOT a valid key under `on:` (only event names are) - the tag
+  # filter has to live inside the `push` event, otherwise GitHub rejects the
+  # whole workflow file with "Unexpected value 'tags'".
   push:
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
-  tags:
-    - "v*"
   workflow_dispatch:
 
 concurrency:
